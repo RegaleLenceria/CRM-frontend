@@ -2,8 +2,8 @@ import { useState } from "react";
 import { Sparkles, Eye, EyeOff, Lock, Mail } from "lucide-react";
 
 export function LoginPage({ onLogin }: { onLogin: () => void }) {
-  const [email,    setEmail]    = useState("demo@laboutique.mx");
-  const [password, setPassword] = useState("demo1234");
+  const [email,    setEmail]    = useState("");
+  const [password, setPassword] = useState("");
   const [showPw,   setShowPw]   = useState(false);
   const [loading,  setLoading]  = useState(false);
 
@@ -24,7 +24,7 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
           <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center">
             <Sparkles size={16} className="text-white" />
           </div>
-          <span className="text-foreground text-base font-semibold tracking-tight">La Boutique CRM</span>
+          <span className="text-foreground text-base font-semibold tracking-tight">Regale Lencería CRM</span>
         </div>
 
         {/* Card */}
@@ -70,9 +70,6 @@ export function LoginPage({ onLogin }: { onLogin: () => void }) {
                   {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
               </div>
-              <p className="text-[11px] text-muted-foreground mt-1.5">
-                Demo — usa cualquier contraseña para acceder
-              </p>
             </div>
 
             <button

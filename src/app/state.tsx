@@ -79,102 +79,78 @@ export type AppAction =
 
 export const BOB_RATE = 6.96; // 1 USD = 6.96 BOB
 
-export const DEVICES: Device[] = [
-  { id: "v1", name: "Ventas 1", number: "+52 55 1000 0001", online: true  },
-  { id: "v2", name: "Ventas 2", number: "+52 55 1000 0002", online: true  },
-  { id: "sp", name: "Soporte",  number: "+52 55 1000 0003", online: false },
-];
+export const DEVICES = new Proxy([] as Device[], {
+  get(target, prop, receiver) {
+    if (prop === "0" || prop === 0) {
+      if (target.length > 0) return target[0];
+      return { id: "", name: "Sin Dispositivo", number: "", online: false };
+    }
+    if (prop === "find") {
+      return (callback: (el: Device) => boolean) => {
+        const found = target.find(callback);
+        if (found !== undefined) return found;
+        return { id: "", name: "Sin Dispositivo", number: "", online: false };
+      };
+    }
+    return Reflect.get(target, prop, receiver);
+  }
+}) as Device[];
 
 export const ALL_TAGS = [
   "Cliente VIP", "Seguimiento", "Pedido activo", "Cotización enviada", "Post-venta",
 ];
 
-export const CHATS: Chat[] = [
-  { id: 1, name: "Valeria Torres",        phone: "+52 55 1234 5678", lastMessage: "Quiero ver si tienen algo en color vino 🖤",      time: "10:32", status: "en_atencion", unread: 0, initials: "VT" },
-  { id: 2, name: "Sofía Mendoza",         phone: "+52 55 9876 5432", lastMessage: "¿Tienen tallas grandes disponibles?",             time: "09:45", status: "pendiente",   unread: 3, initials: "SM" },
-  { id: 3, name: "Camila Ruiz",           phone: "+52 55 5555 1234", lastMessage: "Perfecto, realizo el pago ahora mismo 💳",        time: "09:12", status: "en_atencion", unread: 0, initials: "CR" },
-  { id: 4, name: "Andrea López",          phone: "+52 55 3333 9876", lastMessage: "¿Cuánto tarda el envío a Monterrey?",             time: "Ayer",  status: "pendiente",   unread: 1, initials: "AL" },
-  { id: 5, name: "María Fernanda García", phone: "+52 55 7777 4321", lastMessage: "Muchas gracias, quedo al pendiente 💕",           time: "Ayer",  status: "en_atencion", unread: 0, initials: "MG" },
-  { id: 6, name: "Luisa Herrera",         phone: "+52 55 2222 6789", lastMessage: "¿Hacen envíos a Guadalajara?",                   time: "Lun",   status: "nuevo",       unread: 1, initials: "LH" },
-];
+export const CHATS = new Proxy([] as Chat[], {
+  get(target, prop, receiver) {
+    if (prop === "find") {
+      return (callback: (el: Chat) => boolean) => {
+        const found = target.find(callback);
+        if (found !== undefined) return found;
+        return {
+          id: 0,
+          name: "",
+          phone: "",
+          lastMessage: "",
+          time: "",
+          status: "pendiente",
+          unread: 0,
+          initials: ""
+        } as Chat;
+      };
+    }
+    return Reflect.get(target, prop, receiver);
+  }
+}) as Chat[];
 
-export const CAMPAIGNS: Campaign[] = [
-  { id: 1, name: "Reactivación Clientas Inactivas",    audience: 245, status: "enviada",    sent: 241, openRate: 72, date: "15 Jun 2025" },
-  { id: 2, name: "Nuevas Llegadas — Colección Verano", audience: 318, status: "activa",     sent: 318, openRate: 68, date: "20 Jun 2025" },
-  { id: 3, name: "Seguimiento Post-Compra Junio",      audience: 89,  status: "enviada",    sent: 87,  openRate: 81, date: "22 Jun 2025" },
-  { id: 4, name: "Campaña San Valentín 2026",          audience: 500, status: "programada", sent: 0,   openRate: 0,  date: "12 Feb 2026" },
-  { id: 5, name: "Catálogo Otoño-Invierno",            audience: 0,   status: "borrador",   sent: 0,   openRate: 0,  date: "—"           },
-];
+export const CAMPAIGNS: Campaign[] = [];
 
 export const INITIAL_AGENTS: Agent[] = [
-  { id: 1, name: "María Rodríguez", initials: "MR", role: "Gerente de Ventas", status: "online",  chats: 12 },
-  { id: 2, name: "Fernanda Castro", initials: "FC", role: "Asesora Senior",    status: "online",  chats: 8  },
-  { id: 3, name: "Alejandra Vega",  initials: "AV", role: "Asesora",          status: "away",    chats: 5  },
-  { id: 4, name: "Daniela Moreno",  initials: "DM", role: "Asesora",          status: "offline", chats: 0  },
+  { id: 1, name: "Nicole", initials: "N", role: "Administradora", status: "online", chats: 0 },
+  { id: 2, name: "Andrea", initials: "A", role: "Administradora", status: "online", chats: 0 },
+  { id: 3, name: "Carla", initials: "C", role: "Administradora", status: "online", chats: 0 },
 ];
 
 export const WEEKLY_DATA = [
-  { day: "Lun", mensajes: 34, respondidos: 28, conversiones: 6  },
-  { day: "Mar", mensajes: 41, respondidos: 35, conversiones: 9  },
-  { day: "Mié", mensajes: 38, respondidos: 30, conversiones: 7  },
-  { day: "Jue", mensajes: 52, respondidos: 44, conversiones: 12 },
-  { day: "Vie", mensajes: 63, respondidos: 55, conversiones: 18 },
-  { day: "Sáb", mensajes: 71, respondidos: 61, conversiones: 21 },
-  { day: "Dom", mensajes: 29, respondidos: 22, conversiones: 5  },
+  { day: "Lun", mensajes: 0, respondidos: 0, conversiones: 0 },
+  { day: "Mar", mensajes: 0, respondidos: 0, conversiones: 0 },
+  { day: "Mié", mensajes: 0, respondidos: 0, conversiones: 0 },
+  { day: "Jue", mensajes: 0, respondidos: 0, conversiones: 0 },
+  { day: "Vie", mensajes: 0, respondidos: 0, conversiones: 0 },
+  { day: "Sáb", mensajes: 0, respondidos: 0, conversiones: 0 },
+  { day: "Dom", mensajes: 0, respondidos: 0, conversiones: 0 },
 ];
 
 export const INTEREST_DATA = [
-  { name: "Conjuntos", value: 32, color: "#8C5E8A" },
-  { name: "Pijamas",   value: 24, color: "#C4A0BF" },
-  { name: "Bralettes", value: 18, color: "#D4B8D0" },
-  { name: "Bodys",     value: 14, color: "#E8D5E5" },
-  { name: "Otros",     value: 12, color: "#6D6880" },
+  { name: "Conjuntos", value: 0, color: "#8C5E8A" },
+  { name: "Pijamas",   value: 0, color: "#C4A0BF" },
+  { name: "Bralettes", value: 0, color: "#D4B8D0" },
+  { name: "Bodys",     value: 0, color: "#E8D5E5" },
+  { name: "Otros",     value: 0, color: "#6D6880" },
 ];
 
-const INIT_MESSAGES: Record<number, Msg[]> = {
-  1: [
-    { id: 1, type: "incoming", text: "Hola! Buen día 😊", time: "10:14" },
-    { id: 2, type: "incoming", text: "Vi el conjunto de encaje en Instagram y me encantó ✨", time: "10:15" },
-    { id: 3, type: "outgoing", text: "¡Hola Valeria! Con gusto te ayudo. ¿Tienes en mente alguna talla específica?", time: "10:18", read: true },
-    { id: 4, type: "incoming", text: "Soy talla M, a veces L en la parte de abajo", time: "10:20" },
-    { id: 5, type: "note",     text: "Cliente recurrente — compró pijama de satén en feb. Talla M/L.", time: "10:22" },
-    { id: 6, type: "outgoing", text: "Perfecto! El conjunto está disponible. Precio $850 MXN con envío gratis. ¿Te mando más fotos?", time: "10:28", read: true },
-    { id: 7, type: "incoming", text: "Sí por favor! También quiero ver si tienen algo en color vino 🖤", time: "10:32" },
-  ],
-  2: [
-    { id: 1, type: "incoming", text: "Buenos días! 👋", time: "09:40" },
-    { id: 2, type: "incoming", text: "Busco pijama de seda en talla XL o XXL", time: "09:42" },
-    { id: 3, type: "incoming", text: "¿Tienen tallas grandes disponibles?", time: "09:45" },
-  ],
-  3: [
-    { id: 1, type: "incoming", text: "Hola! Quiero el bralette de encaje floral del catálogo", time: "08:55" },
-    { id: 2, type: "outgoing", text: "¡Hola Camila! Disponible en blanco, negro y nude. ¿Cuál prefieres?", time: "09:00", read: true },
-    { id: 3, type: "incoming", text: "El negro, talla S por favor", time: "09:05" },
-    { id: 4, type: "outgoing", text: "Bralette negro talla S: $420 MXN con envío incluido. Te comparto el link de pago 🔗", time: "09:08", read: true },
-    { id: 5, type: "incoming", text: "Perfecto, realizo el pago ahora mismo 💳", time: "09:12" },
-  ],
-  4: [
-    { id: 1, type: "incoming", text: "Hola buenas tardes", time: "Ayer" },
-    { id: 2, type: "incoming", text: "¿Cuánto tarda el envío a Monterrey?", time: "Ayer" },
-  ],
-  5: [
-    { id: 1, type: "incoming", text: "Hola! Me encantó su catálogo 😍", time: "Ayer" },
-    { id: 2, type: "outgoing", text: "¡Gracias María! Esta semana tenemos nuevos diseños.", time: "Ayer", read: true },
-    { id: 3, type: "incoming", text: "Muchas gracias, quedo al pendiente 💕", time: "Ayer" },
-  ],
-  6: [
-    { id: 1, type: "incoming", text: "¿Hacen envíos a Guadalajara?", time: "Lun" },
-  ],
-};
+const INIT_MESSAGES: Record<number, Msg[]> = {};
 
-const INIT_CRM: Record<number, CRMEntry> = {
-  1: { phone: "+52 55 1234 5678", birthday: "1992-03-15", gender: "Femenino", interest: "Conjuntos" },
-  2: { phone: "+52 55 9876 5432", birthday: "1988-07-22", gender: "Femenino", interest: "Pijamas"   },
-  3: { phone: "+52 55 5555 1234", birthday: "1995-11-08", gender: "Femenino", interest: "Bralettes" },
-  4: { phone: "+52 55 3333 9876", birthday: "",           gender: "",          interest: "Bodys"     },
-  5: { phone: "+52 55 7777 4321", birthday: "1990-05-30", gender: "Femenino", interest: "Conjuntos" },
-  6: { phone: "+52 55 2222 6789", birthday: "",           gender: "",          interest: ""          },
-};
+const INIT_CRM: Record<number, CRMEntry> = {};
 
 // ── Reducer ────────────────────────────────────────────────────────────────────
 
