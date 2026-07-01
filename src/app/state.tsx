@@ -1,4 +1,4 @@
-import { createContext, useContext, useReducer, useEffect } from "react";
+import { createContext, useContext, useReducer, useEffect, useRef } from "react";
 import type { ReactNode, Dispatch } from "react";
 import { io } from "socket.io-client";
 
@@ -11,7 +11,7 @@ export type MsgType        = "incoming" | "outgoing" | "note";
 export type CampaignStatus = "enviada" | "programada" | "borrador" | "activa";
 
 export interface Msg {
-  id: string | number; type: MsgType; text: string; time: string; read?: boolean;
+  id: string | number; type: MsgType; text: string; time: string; rawTime?: string; read?: boolean; receipt?: string;
 }
 export interface Chat {
   id: string | number; name: string; phone: string; lastMessage: string;
@@ -86,7 +86,8 @@ export type AppAction =
   | { type: "ADD_AGENT";        agent:   Agent      }
   | { type: "SET_AGENTS";       agents:  Agent[]    }
   | { type: "SET_CHAT_STATUS";  chatId: string | number; status: ChatStatus }
-  | { type: "SET_CONTACT_NAME"; chatId: string | number; name: string };
+  | { type: "SET_CONTACT_NAME"; chatId: string | number; name: string }
+  | { type: "UPDATE_MSG_RECEIPT"; chatId: string | number; messageId: string; receipt: string; isRead: boolean };
 
 // ── Static/Proxied Data ────────────────────────────────────────────────────────
 
@@ -207,10 +208,14 @@ function reducer(state: AppState, action: AppAction): AppState {
       rawChats.length = 0;
       rawChats.push(...action.chats);
       return { ...state, chats: action.chats };
-    case "SET_DEVICES":
+    case "SET_DEVICES": {
       rawDevices.length = 0;
       rawDevices.push(...action.devices.map(d => ({ ...d, online: d.online })));
-      return { ...state, devices: action.devices, activeDevice: action.devices[0]?.id || "" };
+      const nextActive = state.activeDevice && action.devices.some(d => d.id === state.activeDevice)
+        ? state.activeDevice
+        : (action.devices[0]?.id || "");
+      return { ...state, devices: action.devices, activeDevice: nextActive };
+    }
     case "UPDATE_DEVICE_QR":
       return {
         ...state,
@@ -294,6 +299,22 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, agents: action.agents };
     case "SET_CHAT_STATUS":
       return { ...state, chatStatuses: { ...state.chatStatuses, [action.chatId]: action.status } };
+    case "UPDATE_MSG_RECEIPT": {
+      const currentMsgs = state.messages[action.chatId] ?? [];
+      const updated = currentMsgs.map(m => {
+        if (m.id === action.messageId) {
+          return { ...m, receipt: action.receipt, read: action.isRead };
+        }
+        return m;
+      });
+      return {
+        ...state,
+        messages: {
+          ...state.messages,
+          [action.chatId]: updated
+        }
+      };
+    }
     case "SET_CONTACT_NAME":
       return { ...state, contactNames: { ...state.contactNames, [action.chatId]: action.name } };
     default:
@@ -311,6 +332,11 @@ export const useApp = () => useContext(AppCtx);
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, INIT_STATE);
 
+  const activeDeviceRef = useRef(state.activeDevice);
+  useEffect(() => {
+    activeDeviceRef.current = state.activeDevice;
+  }, [state.activeDevice]);
+
   // Sync with API and sockets
   useEffect(() => {
     const token = localStorage.getItem("crm_token");
@@ -320,55 +346,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     fetch("http://localhost:3000/whatsapp/devices", {
       headers: { Authorization: `Bearer ${token}` }
     })
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error("HTTP error " + res.status);
+        return res.json();
+      })
       .then(devices => {
-        const mappedDevices = devices.map((d: any) => ({
-          id: d.id,
-          name: d.name,
-          number: d.phoneNumber,
-          online: d.isOnline
-        }));
-        dispatch({ type: "SET_DEVICES", devices: mappedDevices });
-      })
-      .catch(err => console.error("Error fetching devices:", err));
-
-    // Load initial chats (customers)
-    fetch("http://localhost:3000/chats", {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-      .then(res => res.json())
-      .then(chats => {
-        dispatch({ type: "SET_CHATS", chats });
-        if (chats.length > 0 && !state.activeChatId) {
-          dispatch({ type: "SET_CHAT", id: chats[0].id });
-        }
-      })
-      .catch(err => console.error("Error fetching chats:", err));
-
-    // Load initial agents (users)
-    fetch("http://localhost:3000/auth/users", {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-      .then(res => res.json())
-      .then(users => {
-        const mappedAgents = users.map((u: any) => ({
-          id: u.id,
-          name: u.name,
-          initials: u.name.split(" ").filter((w: string) => w.length > 0).slice(0, 2).map((w: string) => w[0].toUpperCase()).join(""),
-          role: u.role,
-          status: u.status,
-          chats: 0
-        }));
-        dispatch({ type: "SET_AGENTS", agents: mappedAgents });
-      })
-      .catch(err => console.error("Error loading team members:", err));
-
-    const reloadDevices = () => {
-      fetch("http://localhost:3000/whatsapp/devices", {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-        .then(res => res.json())
-        .then(devices => {
+        if (Array.isArray(devices)) {
           const mappedDevices = devices.map((d: any) => ({
             id: d.id,
             name: d.name,
@@ -376,17 +359,71 @@ export function AppProvider({ children }: { children: ReactNode }) {
             online: d.isOnline
           }));
           dispatch({ type: "SET_DEVICES", devices: mappedDevices });
+        }
+      })
+      .catch(err => console.error("Error fetching devices:", err));
+
+    // Load initial agents (users)
+    fetch("http://localhost:3000/auth/users", {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(res => {
+        if (!res.ok) throw new Error("HTTP error " + res.status);
+        return res.json();
+      })
+      .then(users => {
+        if (Array.isArray(users)) {
+          const mappedAgents = users.map((u: any) => ({
+            id: u.id,
+            name: u.name,
+            initials: u.name.split(" ").filter((w: string) => w.length > 0).slice(0, 2).map((w: string) => w[0].toUpperCase()).join(""),
+            role: u.role,
+            status: u.status,
+            chats: 0
+          }));
+          dispatch({ type: "SET_AGENTS", agents: mappedAgents });
+        }
+      })
+      .catch(err => console.error("Error loading team members:", err));
+
+    const reloadDevices = () => {
+      fetch("http://localhost:3000/whatsapp/devices", {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+        .then(res => {
+          if (!res.ok) throw new Error("HTTP error " + res.status);
+          return res.json();
+        })
+        .then(devices => {
+          if (Array.isArray(devices)) {
+            const mappedDevices = devices.map((d: any) => ({
+              id: d.id,
+              name: d.name,
+              number: d.phoneNumber,
+              online: d.isOnline
+            }));
+            dispatch({ type: "SET_DEVICES", devices: mappedDevices });
+          }
         })
         .catch(err => console.error("Error fetching devices:", err));
     };
 
     const reloadChats = () => {
-      fetch("http://localhost:3000/chats", {
+      const url = activeDeviceRef.current
+        ? `http://localhost:3000/chats?deviceId=${activeDeviceRef.current}`
+        : "http://localhost:3000/chats";
+
+      fetch(url, {
         headers: { Authorization: `Bearer ${token}` }
       })
-        .then(res => res.json())
+        .then(res => {
+          if (!res.ok) throw new Error("HTTP error " + res.status);
+          return res.json();
+        })
         .then(chats => {
-          dispatch({ type: "SET_CHATS", chats });
+          if (Array.isArray(chats)) {
+            dispatch({ type: "SET_CHATS", chats });
+          }
         })
         .catch(err => console.error("Error fetching chats:", err));
     };
@@ -415,7 +452,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           type: "incoming",
           text: message.content,
           time: new Date(message.timestamp).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }),
-          read: message.isRead
+          rawTime: message.timestamp,
+          read: message.isRead,
+          receipt: message.receipt || 'sent'
         }
       });
       reloadChats();
@@ -430,10 +469,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
           type: message.type,
           text: message.content,
           time: new Date(message.timestamp).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }),
-          read: message.isRead
+          rawTime: message.timestamp,
+          read: message.isRead,
+          receipt: message.receipt || 'sent'
         }
       });
       reloadChats();
+    });
+
+    socket.on("message_receipt", ({ chatId, messageId, receipt, isRead }) => {
+      dispatch({
+        type: "UPDATE_MSG_RECEIPT",
+        chatId,
+        messageId,
+        receipt,
+        isRead
+      });
     });
 
     socket.on("qr_update", ({ deviceId, qr }) => {
@@ -444,6 +495,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
       socket.disconnect();
     };
   }, []);
+
+  // Fetch chats when activeDevice changes
+  useEffect(() => {
+    const token = localStorage.getItem("crm_token");
+    if (!token) return;
+
+    const url = state.activeDevice
+      ? `http://localhost:3000/chats?deviceId=${state.activeDevice}`
+      : "http://localhost:3000/chats";
+
+    fetch(url, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(res => {
+        if (!res.ok) throw new Error("HTTP error " + res.status);
+        return res.json();
+      })
+      .then(chats => {
+        if (Array.isArray(chats)) {
+          dispatch({ type: "SET_CHATS", chats });
+          if (chats.length > 0) {
+            dispatch({ type: "SET_CHAT", id: chats[0].id });
+          } else {
+            dispatch({ type: "SET_CHAT", id: "" });
+          }
+        }
+      })
+      .catch(err => console.error("Error fetching chats for device:", err));
+  }, [state.activeDevice]);
 
   // Fetch messages when activeChatId changes
   useEffect(() => {
@@ -466,22 +546,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
     }
 
-    fetch(`http://localhost:3000/chats/${state.activeChatId}/messages`, {
+    const url = state.activeDevice
+      ? `http://localhost:3000/chats/${state.activeChatId}/messages?deviceId=${state.activeDevice}`
+      : `http://localhost:3000/chats/${state.activeChatId}/messages`;
+
+    fetch(url, {
       headers: { Authorization: `Bearer ${token}` }
     })
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error("HTTP error " + res.status);
+        return res.json();
+      })
       .then(messages => {
-        const formatted = messages.map((m: any) => ({
-          id: m.id,
-          type: m.type,
-          text: m.content,
-          time: new Date(m.timestamp).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }),
-          read: m.isRead
-        }));
-        dispatch({ type: "SET_MESSAGES", chatId: state.activeChatId, messages: formatted });
+        if (Array.isArray(messages)) {
+          const formatted = messages.map((m: any) => ({
+            id: m.id,
+            type: m.type,
+            text: m.content,
+            time: new Date(m.timestamp).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }),
+            rawTime: m.timestamp,
+            read: m.isRead,
+            receipt: m.receipt || 'sent'
+          }));
+          dispatch({ type: "SET_MESSAGES", chatId: state.activeChatId, messages: formatted });
+        }
       })
       .catch(err => console.error("Error fetching messages for chat:", err));
-  }, [state.activeChatId, state.chats]);
+  }, [state.activeChatId, state.activeDevice, state.chats]);
 
   return <AppCtx.Provider value={{ state, dispatch }}>{children}</AppCtx.Provider>;
 }

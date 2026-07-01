@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { MessageSquare, Megaphone, BarChart2, Settings, Sparkles } from "lucide-react";
+import { MessageSquare, Megaphone, BarChart2, Settings, Sparkles, LogOut } from "lucide-react";
 
 import { AppProvider, useApp } from "./state";
 import type { NavId } from "./state";
@@ -18,7 +18,7 @@ const NAV: { id: NavId; icon: React.FC<{ size?: number }>; label: string }[] = [
   { id: "settings",  icon: Settings,      label: "Ajustes"   },
 ];
 
-function Sidebar() {
+function Sidebar({ onLogout }: { onLogout: () => void }) {
   const { state, dispatch } = useApp();
   const [initials, setInitials] = useState("U");
 
@@ -45,7 +45,7 @@ function Sidebar() {
 
   return (
     <aside
-      className="w-20 flex-shrink-0 flex flex-col items-center py-5 gap-1"
+      className="w-20 flex-shrink-0 flex flex-col items-center py-5 gap-1 animate-fade-in"
       style={{ background: "#1C1826" }}
     >
       {/* Logo mark */}
@@ -54,7 +54,7 @@ function Sidebar() {
       </div>
 
       {/* Nav icons */}
-      <nav className="flex flex-col items-center gap-1 flex-1 w-full px-3">
+      <nav className="flex flex-col items-center gap-1 flex-shrink-0 w-full px-3">
         {NAV.map(({ id, icon: Icon, label }) => {
           const active = state.activeNav === id;
           return (
@@ -62,9 +62,9 @@ function Sidebar() {
               key={id}
               onClick={() => dispatch({ type: "SET_NAV", nav: id })}
               title={label}
-              className={`relative w-full h-12 rounded-xl flex items-center justify-center transition-all duration-150
+              className={`relative w-full h-12 rounded-xl flex items-center justify-center transition-all duration-150 cursor-pointer
                 ${active
-                  ? "bg-primary/90 text-white"
+                  ? "bg-primary/90 text-white shadow-sm"
                   : "text-white/35 hover:text-white/70 hover:bg-white/10"}`}
             >
               <Icon size={20} />
@@ -76,8 +76,17 @@ function Sidebar() {
         })}
       </nav>
 
+      {/* Logout button */}
+      <button
+        onClick={onLogout}
+        title="Cerrar sesión"
+        className="mt-auto w-10 h-10 rounded-xl flex items-center justify-center text-white/35 hover:text-white/70 hover:bg-red-500/20 hover:text-red-400 transition-all duration-150 mb-4 cursor-pointer"
+      >
+        <LogOut size={20} />
+      </button>
+
       {/* User avatar + online indicator */}
-      <div className="relative mt-auto">
+      <div className="relative">
         <div className="w-10 h-10 rounded-full bg-primary/30 flex items-center justify-center text-white text-xs font-semibold">
           {initials}
         </div>
@@ -89,15 +98,15 @@ function Sidebar() {
 
 // ── Main layout (inside AppProvider) ─────────────────────────────────────────
 
-function MainLayout() {
+function MainLayout({ onLogout }: { onLogout: () => void }) {
   const { state } = useApp();
 
   return (
     <div
-      className="h-screen flex overflow-hidden bg-background"
+      className="h-screen flex overflow-hidden bg-background animate-fade-in"
       style={{ fontFamily: '"DM Sans", system-ui, sans-serif' }}
     >
-      <Sidebar />
+      <Sidebar onLogout={onLogout} />
       {state.activeNav === "inbox"     && <InboxPage />}
       {state.activeNav === "campaigns" && <CampaignsPage />}
       {state.activeNav === "reports"   && <ReportsPage />}
@@ -109,7 +118,15 @@ function MainLayout() {
 // ── Root component ─────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [loggedIn, setLoggedIn] = useState(false);
+  const [loggedIn, setLoggedIn] = useState(() => {
+    return !!localStorage.getItem("crm_token");
+  });
+
+  const handleLogout = () => {
+    localStorage.removeItem("crm_token");
+    localStorage.removeItem("crm_user");
+    setLoggedIn(false);
+  };
 
   if (!loggedIn) {
     return <LoginPage onLogin={() => setLoggedIn(true)} />;
@@ -117,7 +134,7 @@ export default function App() {
 
   return (
     <AppProvider>
-      <MainLayout />
+      <MainLayout onLogout={handleLogout} />
     </AppProvider>
   );
 }

@@ -9,6 +9,25 @@ import { useApp, CHATS, DEVICES, STATUS_CFG } from "./state";
 import type { FilterId, ChatStatus, SaleRecord } from "./state";
 import { Avatar, StatusChip } from "./shared";
 
+// ── WhatsApp Date Formatter ───────────────────────────────────────────────────
+
+const getDayLabel = (dateStr?: string) => {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return "";
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+
+  if (d.toDateString() === today.toDateString()) {
+    return "Hoy";
+  } else if (d.toDateString() === yesterday.toDateString()) {
+    return "Ayer";
+  } else {
+    return d.toLocaleDateString("es-MX", { day: "numeric", month: "long", year: "numeric" });
+  }
+};
+
 // ── Assign Modal ───────────────────────────────────────────────────────────────
 
 function AssignModal({ chatId, onClose }: { chatId: string | number; onClose: () => void }) {
@@ -337,6 +356,18 @@ function ActiveChatPanel() {
   const endRef      = useRef<HTMLDivElement>(null);
   const [showAssign, setShowAssign] = useState(false);
   const [showSale,   setShowSale]   = useState(false);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setSelectedImage(event.target?.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const updateStatus = async (status: ChatStatus) => {
     const token = localStorage.getItem("crm_token");
@@ -380,9 +411,10 @@ function ActiveChatPanel() {
 
   const send = async () => {
     const text = inputText.trim();
-    if (!text) return;
+    if (!text && !selectedImage) return;
 
     if (noteMode) {
+      if (!text) return;
       dispatch({
         type: "SEND_MSG",
         chatId: activeChatId,
@@ -391,6 +423,7 @@ function ActiveChatPanel() {
           type: "note",
           text,
           time: new Date().toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }),
+          rawTime: new Date().toISOString()
         },
       });
       dispatch({ type: "SET_INPUT", val: "" });
@@ -407,7 +440,11 @@ function ActiveChatPanel() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ content: text, deviceId: state.activeDevice })
+        body: JSON.stringify({
+          content: text,
+          deviceId: state.activeDevice,
+          mediaUrl: selectedImage || undefined
+        })
       });
       if (res.ok) {
         const m = await res.json();
@@ -419,9 +456,12 @@ function ActiveChatPanel() {
             type: "outgoing",
             text: m.content,
             time: new Date(m.timestamp).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }),
+            rawTime: m.timestamp,
             read: m.isRead
           }
         });
+        dispatch({ type: "SET_INPUT", val: "" });
+        setSelectedImage(null);
       }
     } catch (err) {
       console.error(err);
@@ -504,34 +544,97 @@ function ActiveChatPanel() {
               </div>
             </div>
           )}
-          {msgs.map(msg => {
-            if (msg.type === "note") {
+          {(() => {
+            let lastDateLabel = "";
+            return msgs.map(msg => {
+              const currentDateLabel = getDayLabel(msg.rawTime);
+              const showDateHeader = currentDateLabel && currentDateLabel !== lastDateLabel;
+              if (currentDateLabel) {
+                lastDateLabel = currentDateLabel;
+              }
+
+              const isImage = msg.text.startsWith("[image:");
+              let imgUrl = "";
+              let caption = msg.text;
+              if (isImage) {
+                const closeIndex = msg.text.indexOf("]");
+                imgUrl = msg.text.slice(7, closeIndex);
+                caption = msg.text.slice(closeIndex + 1);
+              }
+
+              const isOut = msg.type === "outgoing";
+
               return (
-                <div key={msg.id} className="flex justify-center my-1">
-                  <div className="bg-amber-50 border border-amber-200/80 text-amber-800 text-[11px] px-4 py-2 rounded-2xl max-w-md flex items-center gap-2 shadow-sm">
-                    <Lock size={10} className="flex-shrink-0 text-amber-500" />
-                    <span className="leading-relaxed">{msg.text}</span>
-                    <span className="text-amber-400 text-[10px] ml-1 flex-shrink-0">{msg.time}</span>
-                  </div>
+                <div key={msg.id} className="flex flex-col gap-2 animate-fade-in">
+                  {showDateHeader && (
+                    <div className="flex justify-center my-3">
+                      <span className="text-[10px] font-semibold text-muted-foreground bg-muted border border-border/50 px-3.5 py-1 rounded-full shadow-sm">
+                        {currentDateLabel}
+                      </span>
+                    </div>
+                  )}
+                  {msg.type === "note" ? (
+                    <div className="flex justify-center my-1">
+                      <div className="bg-amber-50 border border-amber-200/80 text-amber-800 text-[11px] px-4 py-2 rounded-2xl max-w-md flex items-center gap-2 shadow-sm">
+                        <Lock size={10} className="flex-shrink-0 text-amber-500" />
+                        <span className="leading-relaxed">{msg.text}</span>
+                        <span className="text-amber-400 text-[10px] ml-1 flex-shrink-0">{msg.time}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={`flex ${isOut ? "justify-end" : "justify-start"}`}>
+                      <div className={`max-w-[65%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed shadow-sm flex flex-col gap-1.5
+                        ${isOut ? "bg-primary text-primary-foreground rounded-br-md" : "bg-card text-foreground border border-border rounded-bl-md"}`}>
+                        {isImage && (
+                          <div className="rounded-xl overflow-hidden max-w-full">
+                            <img
+                              src={imgUrl}
+                              alt="Adjunto"
+                              className="max-h-60 object-contain hover:scale-[1.02] transition-transform cursor-pointer"
+                              onClick={() => window.open(imgUrl, "_blank")}
+                            />
+                          </div>
+                        )}
+                        {(!isImage || caption) && <p className="whitespace-pre-wrap">{caption}</p>}
+                        <div className={`flex items-center gap-1 mt-0.5 ${isOut ? "justify-end" : "justify-start"}`}>
+                          <span className={`text-[9px] ${isOut ? "text-white/50" : "text-muted-foreground"}`}>{msg.time}</span>
+                          {isOut && (
+                            <span className="flex items-center">
+                              {msg.receipt === 'read' ? (
+                                <CheckCheck size={11} className="text-blue-300 ml-0.5" />
+                              ) : msg.receipt === 'delivered' ? (
+                                <CheckCheck size={11} className="text-white/40 ml-0.5" />
+                              ) : (
+                                <Check size={11} className="text-white/30 ml-0.5" />
+                              )}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
-            }
-            const isOut = msg.type === "outgoing";
-            return (
-              <div key={msg.id} className={`flex ${isOut ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[65%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed shadow-sm
-                  ${isOut ? "bg-primary text-primary-foreground rounded-br-md" : "bg-card text-foreground border border-border rounded-bl-md"}`}>
-                  <p>{msg.text}</p>
-                  <div className={`flex items-center gap-1 mt-1 ${isOut ? "justify-end" : "justify-start"}`}>
-                    <span className={`text-[10px] ${isOut ? "text-white/50" : "text-muted-foreground"}`}>{msg.time}</span>
-                    {isOut && <CheckCheck size={11} className={msg.read ? "text-blue-300" : "text-white/40"} />}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+            });
+          })()}
           <div ref={endRef} />
         </div>
+
+        {/* Preview of selected image */}
+        {selectedImage && (
+          <div className="px-5 pt-3 pb-1 border-t border-border bg-card flex items-center gap-3">
+            <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-border">
+              <img src={selectedImage} alt="Vista previa" className="w-full h-full object-cover" />
+              <button
+                onClick={() => setSelectedImage(null)}
+                className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black cursor-pointer"
+              >
+                <X size={10} />
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">Imagen lista para enviar</p>
+          </div>
+        )}
 
         {/* Input */}
         <div className={`px-5 py-4 border-t border-border flex-shrink-0 transition-colors duration-200 ${noteMode ? "bg-amber-50/60" : "bg-card"}`}>
@@ -543,7 +646,17 @@ function ActiveChatPanel() {
           )}
           <div className={`flex items-end gap-3 rounded-2xl border px-4 py-3 transition-all
             ${noteMode ? "bg-amber-50 border-amber-200" : "bg-background border-border focus-within:border-primary/30 focus-within:ring-2 focus-within:ring-primary/10"}`}>
-            <button className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0 pb-0.5">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0 pb-0.5 cursor-pointer"
+            >
               <Paperclip size={17} />
             </button>
             <textarea
@@ -557,15 +670,15 @@ function ActiveChatPanel() {
             <div className="flex items-center gap-1.5 flex-shrink-0">
               <button
                 onClick={() => dispatch({ type: "SET_NOTE_MODE", val: !noteMode })}
-                className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all
+                className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all cursor-pointer
                   ${noteMode ? "bg-amber-200 text-amber-700" : "text-muted-foreground hover:text-foreground hover:bg-muted"}`}
               >
                 <Lock size={14} />
               </button>
               <button
                 onClick={send}
-                disabled={!inputText.trim()}
-                className="w-8 h-8 rounded-xl bg-primary text-white flex items-center justify-center hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                disabled={!inputText.trim() && !selectedImage}
+                className="w-8 h-8 rounded-xl bg-primary text-white flex items-center justify-center hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
                 <Send size={13} />
               </button>

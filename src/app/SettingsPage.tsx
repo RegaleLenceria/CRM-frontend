@@ -1,10 +1,10 @@
-import { useState } from "react";
-import { Check, Smartphone, Bell, Users, User, Wifi, WifiOff, Plus, X, Mail, Lock, Eye, EyeOff } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Check, Smartphone, Bell, Users, User, Wifi, WifiOff, Plus, X, Mail, Lock, Eye, EyeOff, Gift } from "lucide-react";
 import { DEVICES, useApp, getInitials } from "./state";
 import type { Agent } from "./state";
 import { Avatar, Toggle } from "./shared";
 
-type Tab = "perfil" | "dispositivos" | "equipo" | "notificaciones";
+type Tab = "perfil" | "dispositivos" | "equipo" | "cumpleanos" | "notificaciones";
 
 // ── Perfil ─────────────────────────────────────────────────────────────────────
 
@@ -525,6 +525,104 @@ function EquipoTab() {
   );
 }
 
+// ── Cumpleaños ─────────────────────────────────────────────────────────────────
+
+function CumpleanosTab() {
+  const [template, setTemplate] = useState("");
+  const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // Load current template on mount
+  useEffect(() => {
+    const token = localStorage.getItem("crm_token");
+    if (!token) return;
+
+    fetch("http://localhost:3000/whatsapp/settings/birthday_message_template", {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(res => {
+        if (res.status === 404 || !res.ok) return null;
+        return res.json();
+      })
+      .then(data => {
+        if (data && data.value) {
+          setTemplate(data.value);
+        } else {
+          setTemplate("¡Hola {nombre}! En Regale Lencería vimos que mañana es tu cumpleaños 🎉. Como sabemos que te encantan los {interes}, queremos regalarte un descuento especial...");
+        }
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error("Error loading birthday template:", err);
+        setLoading(false);
+      });
+  }, []);
+
+  const save = () => {
+    const token = localStorage.getItem("crm_token");
+    if (!token) return;
+
+    setSaved(true);
+    fetch("http://localhost:3000/whatsapp/settings", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        key: "birthday_message_template",
+        value: template
+      })
+    })
+      .then(res => {
+        if (!res.ok) throw new Error("Error saving setting");
+        setTimeout(() => setSaved(false), 2000);
+      })
+      .catch(err => {
+        console.error("Error saving birthday template:", err);
+        setSaved(false);
+      });
+  };
+
+  if (loading) {
+    return <p className="text-sm text-muted-foreground">Cargando plantilla...</p>;
+  }
+
+  return (
+    <div className="max-w-lg flex flex-col gap-5 animate-fade-in">
+      <div className="flex flex-col gap-1.5">
+        <label className="text-sm font-semibold text-foreground">Plantilla del mensaje de cumpleaños</label>
+        <p className="text-xs text-muted-foreground leading-relaxed mb-1">
+          Este mensaje se enviará automáticamente de forma programada **un día antes del cumpleaños** de tus clientas.
+        </p>
+        <textarea
+          value={template}
+          onChange={e => setTemplate(e.target.value)}
+          placeholder="Escribe el mensaje..."
+          rows={6}
+          className="w-full px-3 py-2.5 text-sm bg-muted rounded-xl border border-transparent outline-none focus:ring-2 focus:ring-primary/20 transition-all resize-none placeholder:text-muted-foreground/50 leading-relaxed"
+        />
+        <div className="mt-2 p-3.5 bg-card border border-border rounded-xl flex flex-col gap-1">
+          <p className="text-[11px] font-semibold text-foreground/80 mb-1">Variables dinámicas disponibles:</p>
+          <div className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+            <p><strong>{"{nombre}"}</strong> : Reemplaza por el nombre completo registrado de la clienta.</p>
+            <p><strong>{"{interes}"}</strong> : Reemplaza por el tipo de prenda/interés favorito guardado en el CRM (ej: "pijamas", "bodys").</p>
+          </div>
+        </div>
+      </div>
+
+      <button
+        onClick={save}
+        className={`self-start flex items-center gap-2 px-5 py-2.5 text-sm font-medium rounded-xl transition-all active:scale-[0.98] cursor-pointer
+          ${saved ? "bg-emerald-500 text-white" : "bg-primary text-primary-foreground hover:bg-primary/90"}`}
+      >
+        <Check size={14} />
+        {saved ? "¡Guardado!" : "Guardar cambios"}
+      </button>
+    </div>
+  );
+}
+
 // ── Notificaciones ─────────────────────────────────────────────────────────────
 
 function NotificacionesTab() {
@@ -560,6 +658,7 @@ const TABS: { id: Tab; label: string; icon: React.FC<{ size?: number }> }[] = [
   { id: "perfil",         label: "Mi Perfil",       icon: User       },
   { id: "dispositivos",   label: "Dispositivos",    icon: Smartphone },
   { id: "equipo",         label: "Equipo",          icon: Users      },
+  { id: "cumpleanos",     label: "Cumpleaños",      icon: Gift       },
   { id: "notificaciones", label: "Notificaciones",  icon: Bell       },
 ];
 
@@ -570,6 +669,7 @@ export function SettingsPage() {
     perfil:         <PerfilTab />,
     dispositivos:   <DispositivosTab />,
     equipo:         <EquipoTab />,
+    cumpleanos:     <CumpleanosTab />,
     notificaciones: <NotificacionesTab />,
   }[tab];
 
@@ -586,7 +686,7 @@ export function SettingsPage() {
               <button
                 key={id}
                 onClick={() => setTab(id)}
-                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm transition-colors text-left
+                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm transition-colors text-left cursor-pointer
                   ${tab === id ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:text-foreground hover:bg-muted"}`}
               >
                 <Icon size={15} />

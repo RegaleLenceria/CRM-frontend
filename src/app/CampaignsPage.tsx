@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Plus, X, Users, Send, TrendingUp, BarChart2, ChevronDown, ImagePlus } from "lucide-react";
-import { CAMPAIGNS } from "./state";
+import { useApp, CAMPAIGNS } from "./state";
 import type { Campaign, CampaignStatus } from "./state";
 
 const STATUS_CFG_CAMPAIGN = {
@@ -52,6 +52,7 @@ function NewCampaignModal({
   customers: any[];
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [form, setForm] = useState<CampaignForm>({
     name:         "",
     message:      "",
@@ -89,6 +90,7 @@ function NewCampaignModal({
   const handleImage = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setImageFile(file);
     const url = URL.createObjectURL(file);
     setForm(p => ({ ...p, imageUrl: url, imageName: file.name }));
   };
@@ -104,11 +106,16 @@ function NewCampaignModal({
       id:       Date.now(),
       name:     form.name.trim(),
       audience: estimated,
-      status:   "borrador",
+      status:   "enviada",
       sent:     0,
       openRate: 0,
       date:     "—",
-    });
+      text:     form.message.trim(),
+      audienceMode: form.audienceMode,
+      genderFilter: form.audienceMode === "gender" ? form.gender : undefined,
+      productFilter: form.audienceMode === "product" ? form.products[0] : undefined,
+      imageFile: imageFile
+    } as any);
   };
 
   return (
@@ -337,6 +344,7 @@ function NewCampaignModal({
 // ── Campaigns Page ─────────────────────────────────────────────────────────────
 
 export function CampaignsPage() {
+  const { state } = useApp();
   const [showModal,  setShowModal]  = useState(false);
   const [campaigns,  setCampaigns]  = useState<Campaign[]>(CAMPAIGNS);
   const [customers,  setCustomers]  = useState<any[]>([]);
@@ -467,7 +475,56 @@ export function CampaignsPage() {
         <NewCampaignModal
           customers={customers}
           onClose={() => setShowModal(false)}
-          onCreate={c => { setCampaigns(prev => [...prev, c]); setShowModal(false); }}
+          onCreate={async (campaignData: any) => {
+            const token = localStorage.getItem("crm_token");
+            if (!token) return;
+
+            try {
+              const formData = new FormData();
+              formData.append("text", campaignData.text);
+              // Fallback to activeDevice or "1"
+              formData.append("deviceIds", JSON.stringify([state.activeDevice || "1"]));
+              
+              if (campaignData.genderFilter && campaignData.genderFilter !== "Ambos") {
+                formData.append("genderFilter", campaignData.genderFilter);
+              }
+              if (campaignData.productFilter) {
+                formData.append("productFilter", campaignData.productFilter);
+              }
+              if (campaignData.imageFile) {
+                formData.append("media", campaignData.imageFile);
+              }
+
+              const res = await fetch("http://localhost:3000/campaigns", {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${token}`
+                },
+                body: formData
+              });
+
+              if (res.ok) {
+                const result = await res.json();
+                const newCampaign: Campaign = {
+                  id: Date.now(),
+                  name: campaignData.name,
+                  audience: result.totalCustomers || 0,
+                  status: "enviada",
+                  sent: result.totalCustomers || 0,
+                  openRate: 100,
+                  date: new Date().toLocaleDateString("es-MX", { day: "numeric", month: "short" })
+                };
+                setCampaigns(prev => [newCampaign, ...prev]);
+                setShowModal(false);
+              } else {
+                const errorData = await res.json();
+                alert("Error al enviar campaña: " + (errorData.message || res.statusText));
+              }
+            } catch (err) {
+              console.error("Error creating campaign:", err);
+              alert("Ocurrió un error al enviar la campaña");
+            }
+          }}
         />
       )}
     </div>
