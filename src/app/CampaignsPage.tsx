@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Plus, X, Users, Send, TrendingUp, BarChart2, ChevronDown, ImagePlus } from "lucide-react";
 import { CAMPAIGNS } from "./state";
 import type { Campaign, CampaignStatus } from "./state";
@@ -11,20 +11,6 @@ const STATUS_CFG_CAMPAIGN = {
 } as const;
 
 const PRODUCTS = ["Conjuntos", "Pijamas", "Bralettes", "Bodys", "Lencería fina", "Corsetería"];
-
-// Estimated audience counts per segment (demo values)
-const AUDIENCE_ESTIMATES: Record<string, number> = {
-  all:         1284,
-  Conjuntos:   412,
-  Pijamas:     308,
-  Bralettes:   231,
-  Bodys:       179,
-  "Lencería fina": 94,
-  Corsetería:  60,
-  Femenino:    1247,
-  Masculino:   37,
-  Ambos:       1284,
-};
 
 type AudienceMode = "all" | "product" | "gender";
 
@@ -52,23 +38,18 @@ function OpenRateBar({ rate, status }: { rate: number; status: CampaignStatus })
   );
 }
 
-function estimateAudience(form: CampaignForm): number {
-  if (form.audienceMode === "all") return AUDIENCE_ESTIMATES["all"];
-  if (form.audienceMode === "gender") return AUDIENCE_ESTIMATES[form.gender] ?? 0;
-  if (form.audienceMode === "product" && form.products.length > 0) {
-    return form.products.reduce((sum, p) => sum + (AUDIENCE_ESTIMATES[p] ?? 0), 0);
-  }
-  return 0;
-}
+
 
 // ── New Campaign Modal ─────────────────────────────────────────────────────────
 
 function NewCampaignModal({
   onClose,
   onCreate,
+  customers,
 }: {
   onClose: () => void;
   onCreate: (c: Campaign) => void;
+  customers: any[];
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState<CampaignForm>({
@@ -82,7 +63,20 @@ function NewCampaignModal({
   });
   const [error, setError] = useState("");
 
-  const estimated = estimateAudience(form);
+  const getProductEstimate = (p: string) => customers.filter(c => c.favoriteProduct === p).length;
+  const getGenderEstimate = (g: string) => {
+    if (g === "Ambos") return customers.length;
+    return customers.filter(c => c.gender === g).length;
+  };
+
+  const estimated =
+    form.audienceMode === "all"
+      ? customers.length
+      : form.audienceMode === "gender"
+      ? getGenderEstimate(form.gender)
+      : form.audienceMode === "product"
+      ? customers.filter(c => form.products.includes(c.favoriteProduct)).length
+      : 0;
 
   const toggleProduct = (p: string) =>
     setForm(prev => ({
@@ -167,7 +161,7 @@ function NewCampaignModal({
                 />
                 <span className="text-sm text-foreground">Todas las clientas</span>
                 <span className="ml-auto text-[11px] font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                  {AUDIENCE_ESTIMATES["all"].toLocaleString()}
+                  {customers.length.toLocaleString()}
                 </span>
               </label>
 
@@ -197,7 +191,7 @@ function NewCampaignModal({
                           {p}
                           {form.products.includes(p) && (
                             <span className="ml-1 text-[10px] opacity-70">
-                              ~{(AUDIENCE_ESTIMATES[p] ?? 0).toLocaleString()}
+                              ~{getProductEstimate(p).toLocaleString()}
                             </span>
                           )}
                         </button>
@@ -230,7 +224,7 @@ function NewCampaignModal({
                             className="accent-primary w-3 h-3"
                           />
                           {g}
-                          <span className="text-muted-foreground">({(AUDIENCE_ESTIMATES[g] ?? 0).toLocaleString()})</span>
+                          <span className="text-muted-foreground">({getGenderEstimate(g).toLocaleString()})</span>
                         </label>
                       ))}
                     </div>
@@ -345,6 +339,19 @@ function NewCampaignModal({
 export function CampaignsPage() {
   const [showModal,  setShowModal]  = useState(false);
   const [campaigns,  setCampaigns]  = useState<Campaign[]>(CAMPAIGNS);
+  const [customers,  setCustomers]  = useState<any[]>([]);
+
+  useEffect(() => {
+    const token = localStorage.getItem("crm_token");
+    if (!token) return;
+
+    fetch("http://localhost:3000/customers", {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(res => res.json())
+      .then(data => setCustomers(data))
+      .catch(err => console.error("Error fetching customers for campaigns:", err));
+  }, []);
 
   const stats = [
     {
@@ -458,6 +465,7 @@ export function CampaignsPage() {
 
       {showModal && (
         <NewCampaignModal
+          customers={customers}
           onClose={() => setShowModal(false)}
           onCreate={c => { setCampaigns(prev => [...prev, c]); setShowModal(false); }}
         />
