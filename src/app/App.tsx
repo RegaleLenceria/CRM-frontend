@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { MessageSquare, Megaphone, BarChart2, Settings, Sparkles } from "lucide-react";
 
 import { AppProvider, useApp } from "./state";
@@ -20,6 +20,28 @@ const NAV: { id: NavId; icon: React.FC<{ size?: number }>; label: string }[] = [
 
 function Sidebar() {
   const { state, dispatch } = useApp();
+  const [initials, setInitials] = useState("U");
+
+  useEffect(() => {
+    const updateUser = () => {
+      const stored = localStorage.getItem("crm_user");
+      if (stored) {
+        const u = JSON.parse(stored);
+        if (u && u.name) {
+          const parts = u.name.split(" ").filter((w: string) => w.length > 0).slice(0, 2);
+          setInitials(parts.map((w: string) => w[0].toUpperCase()).join(""));
+          return;
+        }
+      }
+      setInitials("U");
+    };
+
+    updateUser();
+    window.addEventListener("user_profile_updated", updateUser);
+    return () => {
+      window.removeEventListener("user_profile_updated", updateUser);
+    };
+  }, []);
 
   return (
     <aside
@@ -57,7 +79,7 @@ function Sidebar() {
       {/* User avatar + online indicator */}
       <div className="relative mt-auto">
         <div className="w-10 h-10 rounded-full bg-primary/30 flex items-center justify-center text-white text-xs font-semibold">
-          MR
+          {initials}
         </div>
         <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-400 rounded-full border-2 border-[#1C1826]" />
       </div>

@@ -9,37 +9,67 @@ type Tab = "perfil" | "dispositivos" | "equipo" | "notificaciones";
 // ── Perfil ─────────────────────────────────────────────────────────────────────
 
 function PerfilTab() {
-  const [form,  setForm]  = useState({ name: "María Rodríguez", email: "maria@laboutique.mx", role: "Gerente de Ventas" });
+  const storedUser = localStorage.getItem("crm_user");
+  const initialUser = storedUser ? JSON.parse(storedUser) : { name: "", email: "", role: "" };
+
+  const [form, setForm] = useState({
+    name: initialUser.name || "",
+    email: initialUser.email || "",
+    role: initialUser.role || ""
+  });
   const [saved, setSaved] = useState(false);
 
-  const save = () => { setSaved(true); setTimeout(() => setSaved(false), 2000); };
+  const save = () => {
+    setSaved(true);
+    localStorage.setItem("crm_user", JSON.stringify({
+      name: form.name,
+      email: form.email,
+      role: form.role
+    }));
+    window.dispatchEvent(new Event("user_profile_updated"));
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const getInitials = (nameStr: string) => {
+    return nameStr
+      .split(" ")
+      .filter(w => w.length > 0)
+      .slice(0, 2)
+      .map(w => w[0].toUpperCase())
+      .join("");
+  };
+
+  const initials = getInitials(form.name || "U");
 
   return (
     <div className="max-w-lg flex flex-col gap-5">
       <div className="flex items-center gap-4 p-5 bg-card rounded-2xl border border-border">
         <div className="w-14 h-14 rounded-full bg-gradient-to-br from-primary/20 to-accent/40 flex items-center justify-center text-primary text-lg font-semibold">
-          MR
+          {initials}
         </div>
         <div>
-          <p className="text-sm font-semibold text-foreground">María Rodríguez</p>
-          <p className="text-xs text-muted-foreground">Gerente de Ventas · Online</p>
+          <p className="text-sm font-semibold text-foreground">{form.name || "Usuario"}</p>
+          <p className="text-xs text-muted-foreground">{form.role || "Agente"} · Online</p>
         </div>
       </div>
 
       <div className="flex flex-col gap-1.5">
         <label className="text-xs font-medium text-foreground/80">Nombre completo</label>
         <input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
-          className="px-3 py-2.5 text-sm bg-muted rounded-xl border border-transparent outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
+          placeholder="Tu nombre completo"
+          className="px-3 py-2.5 text-sm bg-muted rounded-xl border border-transparent outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/45" />
       </div>
       <div className="flex flex-col gap-1.5">
         <label className="text-xs font-medium text-foreground/80">Correo electrónico</label>
         <input value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
-          className="px-3 py-2.5 text-sm bg-muted rounded-xl border border-transparent outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
+          placeholder="tuemail@ejemplo.com"
+          className="px-3 py-2.5 text-sm bg-muted rounded-xl border border-transparent outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/45" />
       </div>
       <div className="flex flex-col gap-1.5">
         <label className="text-xs font-medium text-foreground/80">Rol</label>
         <input value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value }))}
-          className="px-3 py-2.5 text-sm bg-muted rounded-xl border border-transparent outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
+          placeholder="Rol en el equipo"
+          className="px-3 py-2.5 text-sm bg-muted rounded-xl border border-transparent outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/45" />
       </div>
 
       <button
@@ -58,48 +88,185 @@ function PerfilTab() {
 
 function DispositivosTab() {
   const { state, dispatch } = useApp();
-  const [localDevices, setLocalDevices] = useState([...DEVICES]);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newDevice, setNewDevice] = useState({ id: "", name: "", number: "" });
+  const [formError, setFormError] = useState("");
 
-  const toggle = (id: string) => {
-    setLocalDevices(prev => prev.map(d => d.id === id ? { ...d, online: !d.online } : d));
-    if (state.activeDevice === id) {
-      // switch to first online device or keep the same
+  const handleConnect = async (deviceId: string) => {
+    const token = localStorage.getItem("crm_token");
+    if (!token) return;
+
+    try {
+      const res = await fetch(`http://localhost:3000/whatsapp/${deviceId}/start`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) {
+        throw new Error("Error al conectar el dispositivo");
+      }
+    } catch (err) {
+      console.error("Error triggering connection:", err);
+    }
+  };
+
+  const handleAddDevice = async () => {
+    if (!newDevice.id.trim() || !newDevice.name.trim() || !newDevice.number.trim()) {
+      setFormError("Todos los campos son obligatorios.");
+      return;
+    }
+    const token = localStorage.getItem("crm_token");
+    if (!token) return;
+
+    try {
+      const res = await fetch("http://localhost:3000/whatsapp/devices", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          id: newDevice.id.trim(),
+          name: newDevice.name.trim(),
+          phoneNumber: newDevice.number.trim()
+        })
+      });
+      if (!res.ok) {
+        throw new Error("Error al agregar el dispositivo.");
+      }
+      const data = await res.json();
+      
+      dispatch({
+        type: "SET_DEVICES",
+        devices: [
+          ...state.devices,
+          {
+            id: data.id,
+            name: data.name,
+            number: data.phoneNumber,
+            online: data.isOnline
+          }
+        ]
+      });
+
+      setShowAddForm(false);
+      setNewDevice({ id: "", name: "", number: "" });
+      setFormError("");
+    } catch (err: any) {
+      setFormError(err.message || "Error de conexión con el servidor.");
     }
   };
 
   return (
     <div className="max-w-lg flex flex-col gap-4">
       <p className="text-xs text-muted-foreground -mt-1">Gestiona tus números de WhatsApp conectados</p>
-      {localDevices.map(d => (
-        <div key={d.id} className="flex items-center justify-between p-4 bg-card rounded-2xl border border-border">
-          <div className="flex items-center gap-3">
-            <div className={`w-9 h-9 rounded-xl flex items-center justify-center
-              ${d.online ? "bg-emerald-50 text-emerald-600" : "bg-muted text-muted-foreground"}`}>
-              <Smartphone size={16} />
+      
+      {state.devices.map(d => (
+        <div key={d.id} className="flex flex-col gap-3 p-4 bg-card rounded-2xl border border-border shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center
+                ${d.online ? "bg-emerald-50 text-emerald-600" : "bg-muted text-muted-foreground"}`}>
+                <Smartphone size={16} />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-foreground">{d.name}</p>
+                <p className="text-xs text-muted-foreground">{d.number}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-medium text-foreground">{d.name}</p>
-              <p className="text-xs text-muted-foreground">{d.number}</p>
+            <div className="flex items-center gap-3">
+              <span className={`text-[11px] font-medium flex items-center gap-1 ${d.online ? "text-emerald-600" : "text-muted-foreground"}`}>
+                {d.online ? <Wifi size={11} /> : <WifiOff size={11} />}
+                {d.online ? "Conectado" : "Desconectado"}
+              </span>
+              <button
+                onClick={() => !d.online && handleConnect(d.id)}
+                disabled={d.online}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors
+                  ${d.online 
+                    ? "bg-emerald-50 text-emerald-600 cursor-not-allowed opacity-80" 
+                    : "bg-primary/10 text-primary hover:bg-primary/15"}`}
+              >
+                {d.online ? "Conectado" : "Conectar"}
+              </button>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <span className={`text-[11px] font-medium flex items-center gap-1 ${d.online ? "text-emerald-600" : "text-muted-foreground"}`}>
-              {d.online ? <Wifi size={11} /> : <WifiOff size={11} />}
-              {d.online ? "Conectado" : "Desconectado"}
-            </span>
+
+          {state.deviceQrs[d.id] && !d.online && (
+            <div className="flex flex-col items-center gap-2.5 p-4 bg-muted/50 rounded-xl border border-dashed border-border mt-1">
+              <p className="text-xs font-medium text-foreground text-center">Escanea este código QR desde tu WhatsApp para vincular:</p>
+              <div className="p-2.5 bg-white rounded-xl shadow-sm border border-border">
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(state.deviceQrs[d.id])}`}
+                  alt="WhatsApp QR Link"
+                  className="w-44 h-44"
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground text-center max-w-[280px]">
+                Abre WhatsApp {`>`} Dispositivos vinculados {`>`} Vincular un dispositivo en tu celular.
+              </p>
+            </div>
+          )}
+        </div>
+      ))}
+
+      {showAddForm ? (
+        <div className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-4 shadow-sm mt-2">
+          <p className="text-sm font-semibold text-foreground">Agregar nuevo dispositivo</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium text-foreground/80">ID del dispositivo</label>
+              <input
+                value={newDevice.id}
+                onChange={e => setNewDevice(p => ({ ...p, id: e.target.value }))}
+                placeholder="celular-admin"
+                className="px-3.5 py-2.5 text-sm bg-muted rounded-xl border border-transparent outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/45"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium text-foreground/80">Nombre</label>
+              <input
+                value={newDevice.name}
+                onChange={e => setNewDevice(p => ({ ...p, name: e.target.value }))}
+                placeholder="Mi Celular"
+                className="px-3.5 py-2.5 text-sm bg-muted rounded-xl border border-transparent outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/45"
+              />
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-foreground/80">Número de teléfono</label>
+            <input
+              value={newDevice.number}
+              onChange={e => setNewDevice(p => ({ ...p, number: e.target.value }))}
+              placeholder="+52 55 1234 5678"
+              className="px-3.5 py-2.5 text-sm bg-muted rounded-xl border border-transparent outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/45"
+            />
+          </div>
+          {formError && (
+            <p className="text-xs text-red-500 bg-red-50/50 border border-red-100 px-3.5 py-2.5 rounded-xl">{formError}</p>
+          )}
+          <div className="flex gap-2 justify-end">
             <button
-              onClick={() => toggle(d.id)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors
-                ${d.online ? "bg-red-50 text-red-600 hover:bg-red-100" : "bg-primary/10 text-primary hover:bg-primary/15"}`}
+              onClick={() => setShowAddForm(false)}
+              className="px-4 py-2.5 text-xs font-medium bg-muted rounded-xl hover:bg-secondary text-muted-foreground transition-colors"
             >
-              {d.online ? "Desconectar" : "Conectar"}
+              Cancelar
+            </button>
+            <button
+              onClick={handleAddDevice}
+              className="px-4 py-2.5 text-xs font-medium bg-primary text-white rounded-xl hover:bg-primary/90 transition-all active:scale-[0.98]"
+            >
+              Guardar
             </button>
           </div>
         </div>
-      ))}
-      <button className="text-sm text-primary font-medium hover:underline self-start">
-        + Agregar dispositivo
-      </button>
+      ) : (
+        <button
+          onClick={() => { setShowAddForm(true); setFormError(""); }}
+          className="text-sm text-primary font-medium hover:underline self-start mt-2"
+        >
+          + Agregar dispositivo
+        </button>
+      )}
     </div>
   );
 }

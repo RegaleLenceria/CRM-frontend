@@ -1,5 +1,6 @@
-import { createContext, useContext, useReducer } from "react";
+import { createContext, useContext, useReducer, useEffect } from "react";
 import type { ReactNode, Dispatch } from "react";
+import { io } from "socket.io-client";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -10,10 +11,10 @@ export type MsgType        = "incoming" | "outgoing" | "note";
 export type CampaignStatus = "enviada" | "programada" | "borrador" | "activa";
 
 export interface Msg {
-  id: number; type: MsgType; text: string; time: string; read?: boolean;
+  id: string | number; type: MsgType; text: string; time: string; read?: boolean;
 }
 export interface Chat {
-  id: number; name: string; phone: string; lastMessage: string;
+  id: string | number; name: string; phone: string; lastMessage: string;
   time: string; status: ChatStatus; unread: number; initials: string;
 }
 export interface CRMEntry {
@@ -33,53 +34,64 @@ export interface Agent {
   status: "online" | "offline" | "away"; chats: number;
 }
 export interface Device {
-  id: string; name: string; number: string; online: boolean;
+  id: string; name: string; number: string; online: boolean; qr?: string;
 }
 
 export interface AppState {
   activeNav:    NavId;
-  activeChatId: number;
+  activeChatId: string | number;
   activeDevice: string;
   filter:       FilterId;
   searchQuery:  string;
-  messages:     Record<number, Msg[]>;
-  crmData:      Record<number, CRMEntry>;
-  savedIds:     Set<number>;
+  messages:     Record<string | number, Msg[]>;
+  crmData:      Record<string | number, CRMEntry>;
+  savedIds:     Set<string | number>;
   noteMode:     boolean;
   inputText:    string;
-  chatStatuses:  Record<number, ChatStatus>;
-  contactNames:  Record<number, string>;
-  contactTags:   Record<number, string[]>;
-  sales:        Record<number, SaleRecord | null>;
-  assignments:  Record<number, string>;
+  chatStatuses:  Record<string | number, ChatStatus>;
+  contactNames:  Record<string | number, string>;
+  contactTags:   Record<string | number, string[]>;
+  sales:        Record<string | number, SaleRecord | null>;
+  assignments:  Record<string | number, string>;
   agents:       Agent[];
+  chats:        Chat[];
+  devices:      Device[];
+  deviceQrs:    Record<string, string>;
 }
 
 export type AppAction =
   | { type: "SET_NAV";      nav:    NavId             }
-  | { type: "SET_CHAT";     id:     number            }
+  | { type: "SET_CHAT";     id:     string | number   }
   | { type: "SET_DEVICE";   device: string            }
   | { type: "SET_FILTER";   filter: FilterId          }
   | { type: "SET_SEARCH";   query:  string            }
-  | { type: "SEND_MSG";     chatId: number; msg: Msg  }
-  | { type: "UPDATE_CRM";   chatId: number; data: Partial<CRMEntry> }
-  | { type: "MARK_SAVED";   chatId: number            }
-  | { type: "CLEAR_SAVED";  chatId: number            }
+  | { type: "SEND_MSG";     chatId: string | number; msg: Msg  }
+  | { type: "RECEIVE_MSG";  chatId: string | number; msg: Msg  }
+  | { type: "SET_MESSAGES"; chatId: string | number; messages: Msg[] }
+  | { type: "SET_CHATS";    chats:  Chat[]            }
+  | { type: "SET_DEVICES";  devices: Device[]          }
+  | { type: "UPDATE_DEVICE_QR"; deviceId: string; qr: string }
+  | { type: "UPDATE_CRM";   chatId: string | number; data: Partial<CRMEntry> }
+  | { type: "MARK_SAVED";   chatId: string | number   }
+  | { type: "CLEAR_SAVED";  chatId: string | number   }
   | { type: "SET_NOTE_MODE"; val:   boolean           }
   | { type: "SET_INPUT";    val:    string            }
-  | { type: "TOGGLE_TAG";   chatId: number; tag: string }
-  | { type: "RECORD_SALE";  chatId: number; sale: SaleRecord }
-  | { type: "CLEAR_SALE";   chatId: number            }
-  | { type: "ASSIGN_AGENT"; chatId: number; agentName: string }
+  | { type: "TOGGLE_TAG";   chatId: string | number; tag: string }
+  | { type: "RECORD_SALE";  chatId: string | number; sale: SaleRecord }
+  | { type: "CLEAR_SALE";   chatId: string | number   }
+  | { type: "ASSIGN_AGENT"; chatId: string | number; agentName: string }
   | { type: "ADD_AGENT";        agent:   Agent      }
-  | { type: "SET_CHAT_STATUS";  chatId: number; status: ChatStatus }
-  | { type: "SET_CONTACT_NAME"; chatId: number; name: string };
+  | { type: "SET_CHAT_STATUS";  chatId: string | number; status: ChatStatus }
+  | { type: "SET_CONTACT_NAME"; chatId: string | number; name: string };
 
-// ── Static Data ────────────────────────────────────────────────────────────────
+// ── Static/Proxied Data ────────────────────────────────────────────────────────
 
 export const BOB_RATE = 6.96; // 1 USD = 6.96 BOB
 
-export const DEVICES = new Proxy([] as Device[], {
+export const rawDevices: Device[] = [];
+export const rawChats: Chat[] = [];
+
+export const DEVICES = new Proxy(rawDevices, {
   get(target, prop, receiver) {
     if (prop === "0" || prop === 0) {
       if (target.length > 0) return target[0];
@@ -96,18 +108,14 @@ export const DEVICES = new Proxy([] as Device[], {
   }
 }) as Device[];
 
-export const ALL_TAGS = [
-  "Cliente VIP", "Seguimiento", "Pedido activo", "Cotización enviada", "Post-venta",
-];
-
-export const CHATS = new Proxy([] as Chat[], {
+export const CHATS = new Proxy(rawChats, {
   get(target, prop, receiver) {
     if (prop === "find") {
       return (callback: (el: Chat) => boolean) => {
         const found = target.find(callback);
         if (found !== undefined) return found;
         return {
-          id: 0,
+          id: "",
           name: "",
           phone: "",
           lastMessage: "",
@@ -121,6 +129,10 @@ export const CHATS = new Proxy([] as Chat[], {
     return Reflect.get(target, prop, receiver);
   }
 }) as Chat[];
+
+export const ALL_TAGS = [
+  "Cliente VIP", "Seguimiento", "Pedido activo", "Cotización enviada", "Post-venta",
+];
 
 export const CAMPAIGNS: Campaign[] = [];
 
@@ -148,21 +160,20 @@ export const INTEREST_DATA = [
   { name: "Otros",     value: 0, color: "#6D6880" },
 ];
 
-const INIT_MESSAGES: Record<number, Msg[]> = {};
-
-const INIT_CRM: Record<number, CRMEntry> = {};
+const INIT_MESSAGES: Record<string | number, Msg[]> = {};
+const INIT_CRM: Record<string | number, CRMEntry> = {};
 
 // ── Reducer ────────────────────────────────────────────────────────────────────
 
 const INIT_STATE: AppState = {
   activeNav:    "inbox",
-  activeChatId: 1,
-  activeDevice: "v1",
+  activeChatId: "",
+  activeDevice: "",
   filter:       "todos",
   searchQuery:  "",
   messages:     INIT_MESSAGES,
   crmData:      INIT_CRM,
-  savedIds:     new Set<number>(),
+  savedIds:     new Set<string | number>(),
   noteMode:     false,
   inputText:    "",
   chatStatuses:  {},
@@ -171,6 +182,9 @@ const INIT_STATE: AppState = {
   sales:        {},
   assignments:  {},
   agents:       INITIAL_AGENTS,
+  chats:        [],
+  devices:      [],
+  deviceQrs:    {},
 };
 
 function reducer(state: AppState, action: AppAction): AppState {
@@ -189,6 +203,30 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, noteMode: action.val };
     case "SET_INPUT":
       return { ...state, inputText: action.val };
+    case "SET_CHATS":
+      rawChats.length = 0;
+      rawChats.push(...action.chats);
+      return { ...state, chats: action.chats };
+    case "SET_DEVICES":
+      rawDevices.length = 0;
+      rawDevices.push(...action.devices.map(d => ({ ...d, online: d.online })));
+      return { ...state, devices: action.devices, activeDevice: action.devices[0]?.id || "" };
+    case "UPDATE_DEVICE_QR":
+      return {
+        ...state,
+        deviceQrs: {
+          ...state.deviceQrs,
+          [action.deviceId]: action.qr
+        }
+      };
+    case "SET_MESSAGES":
+      return {
+        ...state,
+        messages: {
+          ...state.messages,
+          [action.chatId]: action.messages,
+        },
+      };
     case "SEND_MSG": {
       const currentStatus =
         state.chatStatuses[action.chatId] ??
@@ -204,6 +242,17 @@ function reducer(state: AppState, action: AppAction): AppState {
         chatStatuses: reopen
           ? { ...state.chatStatuses, [action.chatId]: "pendiente" }
           : state.chatStatuses,
+      };
+    }
+    case "RECEIVE_MSG": {
+      const currentMsgs = state.messages[action.chatId] ?? [];
+      if (currentMsgs.some(m => m.id === action.msg.id)) return state;
+      return {
+        ...state,
+        messages: {
+          ...state.messages,
+          [action.chatId]: [...currentMsgs, action.msg]
+        }
       };
     }
     case "UPDATE_CRM":
@@ -259,6 +308,161 @@ export const useApp = () => useContext(AppCtx);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, INIT_STATE);
+
+  // Sync with API and sockets
+  useEffect(() => {
+    const token = localStorage.getItem("crm_token");
+    if (!token) return;
+
+    // Load initial devices
+    fetch("http://localhost:3000/whatsapp/devices", {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(res => res.json())
+      .then(devices => {
+        const mappedDevices = devices.map((d: any) => ({
+          id: d.id,
+          name: d.name,
+          number: d.phoneNumber,
+          online: d.isOnline
+        }));
+        dispatch({ type: "SET_DEVICES", devices: mappedDevices });
+      })
+      .catch(err => console.error("Error fetching devices:", err));
+
+    // Load initial chats (customers)
+    fetch("http://localhost:3000/chats", {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(res => res.json())
+      .then(chats => {
+        dispatch({ type: "SET_CHATS", chats });
+        if (chats.length > 0 && !state.activeChatId) {
+          dispatch({ type: "SET_CHAT", id: chats[0].id });
+        }
+      })
+      .catch(err => console.error("Error fetching chats:", err));
+
+    const reloadDevices = () => {
+      fetch("http://localhost:3000/whatsapp/devices", {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+        .then(res => res.json())
+        .then(devices => {
+          const mappedDevices = devices.map((d: any) => ({
+            id: d.id,
+            name: d.name,
+            number: d.phoneNumber,
+            online: d.isOnline
+          }));
+          dispatch({ type: "SET_DEVICES", devices: mappedDevices });
+        })
+        .catch(err => console.error("Error fetching devices:", err));
+    };
+
+    const reloadChats = () => {
+      fetch("http://localhost:3000/chats", {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+        .then(res => res.json())
+        .then(chats => {
+          dispatch({ type: "SET_CHATS", chats });
+        })
+        .catch(err => console.error("Error fetching chats:", err));
+    };
+
+    // Connect socket
+    const socket = io("http://localhost:3000", {
+      auth: { token }
+    });
+
+    socket.on("connect", () => {
+      console.log("WebSocket connected to backend successfully");
+    });
+
+    socket.on("device_connected", ({ deviceId }) => {
+      console.log("Device connected event received for:", deviceId);
+      reloadDevices();
+      reloadChats();
+    });
+
+    socket.on("new_incoming_message", (message) => {
+      dispatch({
+        type: "RECEIVE_MSG",
+        chatId: message.customer.id,
+        msg: {
+          id: message.id,
+          type: "incoming",
+          text: message.content,
+          time: new Date(message.timestamp).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }),
+          read: message.isRead
+        }
+      });
+      reloadChats();
+    });
+
+    socket.on("new_message", (message) => {
+      dispatch({
+        type: "RECEIVE_MSG",
+        chatId: message.customer.id,
+        msg: {
+          id: message.id,
+          type: message.type,
+          text: message.content,
+          time: new Date(message.timestamp).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }),
+          read: message.isRead
+        }
+      });
+      reloadChats();
+    });
+
+    socket.on("qr_update", ({ deviceId, qr }) => {
+      dispatch({ type: "UPDATE_DEVICE_QR", deviceId, qr });
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
+
+  // Fetch messages when activeChatId changes
+  useEffect(() => {
+    if (!state.activeChatId) return;
+    const token = localStorage.getItem("crm_token");
+    if (!token) return;
+
+    // Load customer data into CRM details if not already loaded
+    const currentChat = state.chats.find(c => c.id === state.activeChatId);
+    if (currentChat) {
+      dispatch({
+        type: "UPDATE_CRM",
+        chatId: state.activeChatId,
+        data: {
+          phone: currentChat.phone,
+          birthday: currentChat.birthday ? currentChat.birthday.substring(0, 10) : "",
+          gender: currentChat.gender || "",
+          interest: currentChat.favoriteProduct || ""
+        }
+      });
+    }
+
+    fetch(`http://localhost:3000/chats/${state.activeChatId}/messages`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(res => res.json())
+      .then(messages => {
+        const formatted = messages.map((m: any) => ({
+          id: m.id,
+          type: m.type,
+          text: m.content,
+          time: new Date(m.timestamp).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }),
+          read: m.isRead
+        }));
+        dispatch({ type: "SET_MESSAGES", chatId: state.activeChatId, messages: formatted });
+      })
+      .catch(err => console.error("Error fetching messages for chat:", err));
+  }, [state.activeChatId, state.chats]);
+
   return <AppCtx.Provider value={{ state, dispatch }}>{children}</AppCtx.Provider>;
 }
 

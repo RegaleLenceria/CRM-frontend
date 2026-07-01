@@ -338,18 +338,35 @@ function ActiveChatPanel() {
   const [showAssign, setShowAssign] = useState(false);
   const [showSale,   setShowSale]   = useState(false);
 
-  const terminarChat = () =>
-    dispatch({ type: "SET_CHAT_STATUS", chatId: activeChatId, status: "terminada" });
+  const updateStatus = async (status: ChatStatus) => {
+    const token = localStorage.getItem("crm_token");
+    if (!token) return;
+    try {
+      const res = await fetch(`http://localhost:3000/chats/${activeChatId}/status`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ status })
+      });
+      if (res.ok) {
+        dispatch({ type: "SET_CHAT_STATUS", chatId: activeChatId, status });
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
-  const reabrirChat = () =>
-    dispatch({ type: "SET_CHAT_STATUS", chatId: activeChatId, status: "en_atencion" });
+  const terminarChat = () => updateStatus("terminada");
+  const reabrirChat = () => updateStatus("en_atencion");
 
   const simularRespuesta = () => {
     dispatch({
       type:   "SEND_MSG",
       chatId: activeChatId,
       msg: {
-        id:   Date.now(),
+        id:   Date.now().toString(),
         type: "incoming",
         text: "Hola, quería preguntarte algo más 😊",
         time: new Date().toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }),
@@ -361,20 +378,54 @@ function ActiveChatPanel() {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [msgs.length]);
 
-  const send = () => {
+  const send = async () => {
     const text = inputText.trim();
     if (!text) return;
-    dispatch({
-      type:   "SEND_MSG",
-      chatId: activeChatId,
-      msg: {
-        id:   Date.now(),
-        type: noteMode ? "note" : "outgoing",
-        text,
-        time: new Date().toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }),
-        read: false,
-      },
-    });
+
+    if (noteMode) {
+      dispatch({
+        type: "SEND_MSG",
+        chatId: activeChatId,
+        msg: {
+          id: `note-${Date.now()}`,
+          type: "note",
+          text,
+          time: new Date().toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }),
+        },
+      });
+      dispatch({ type: "SET_INPUT", val: "" });
+      return;
+    }
+
+    const token = localStorage.getItem("crm_token");
+    if (!token) return;
+
+    try {
+      const res = await fetch(`http://localhost:3000/chats/${activeChatId}/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ content: text, deviceId: state.activeDevice })
+      });
+      if (res.ok) {
+        const m = await res.json();
+        dispatch({
+          type: "SEND_MSG",
+          chatId: activeChatId,
+          msg: {
+            id: m.id,
+            type: "outgoing",
+            text: m.content,
+            time: new Date(m.timestamp).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }),
+            read: m.isRead
+          }
+        });
+      }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   return (
@@ -548,9 +599,31 @@ function CRMContextPanel() {
   const update = (data: Partial<typeof crm>) =>
     dispatch({ type: "UPDATE_CRM", chatId: activeChatId, data });
 
-  const handleSave = () => {
-    dispatch({ type: "MARK_SAVED", chatId: activeChatId });
-    setTimeout(() => dispatch({ type: "CLEAR_SAVED", chatId: activeChatId }), 2000);
+  const handleSave = async () => {
+    const token = localStorage.getItem("crm_token");
+    if (!token) return;
+    try {
+      const res = await fetch(`http://localhost:3000/customers/${activeChatId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          phone: crm.phone,
+          birthday: crm.birthday || null,
+          gender: crm.gender || null,
+          favoriteProduct: crm.interest || null,
+          name: contactNames[activeChatId] ?? chat.name
+        })
+      });
+      if (res.ok) {
+        dispatch({ type: "MARK_SAVED", chatId: activeChatId });
+        setTimeout(() => dispatch({ type: "CLEAR_SAVED", chatId: activeChatId }), 2000);
+      }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   return (
