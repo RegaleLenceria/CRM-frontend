@@ -84,6 +84,7 @@ export type AppAction =
   | { type: "CLEAR_SALE";   chatId: string | number   }
   | { type: "ASSIGN_AGENT"; chatId: string | number; agentName: string }
   | { type: "ADD_AGENT";        agent:   Agent      }
+  | { type: "SET_AGENTS";       agents:  Agent[]    }
   | { type: "SET_CHAT_STATUS";  chatId: string | number; status: ChatStatus }
   | { type: "SET_CONTACT_NAME"; chatId: string | number; name: string };
 
@@ -139,11 +140,7 @@ export const ALL_TAGS = [
 
 export const CAMPAIGNS: Campaign[] = [];
 
-export const INITIAL_AGENTS: Agent[] = [
-  { id: 1, name: "Nicole", initials: "N", role: "Administradora", status: "online", chats: 0 },
-  { id: 2, name: "Andrea", initials: "A", role: "Administradora", status: "online", chats: 0 },
-  { id: 3, name: "Carla", initials: "C", role: "Administradora", status: "online", chats: 0 },
-];
+export const INITIAL_AGENTS: Agent[] = [];
 
 export const WEEKLY_DATA = [
   { day: "Lun", mensajes: 0, respondidos: 0, conversiones: 0 },
@@ -293,6 +290,8 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, assignments: { ...state.assignments, [action.chatId]: action.agentName } };
     case "ADD_AGENT":
       return { ...state, agents: [...state.agents, action.agent] };
+    case "SET_AGENTS":
+      return { ...state, agents: action.agents };
     case "SET_CHAT_STATUS":
       return { ...state, chatStatuses: { ...state.chatStatuses, [action.chatId]: action.status } };
     case "SET_CONTACT_NAME":
@@ -345,6 +344,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       })
       .catch(err => console.error("Error fetching chats:", err));
+
+    // Load initial agents (users)
+    fetch("http://localhost:3000/auth/users", {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(res => res.json())
+      .then(users => {
+        const mappedAgents = users.map((u: any) => ({
+          id: u.id,
+          name: u.name,
+          initials: u.name.split(" ").filter((w: string) => w.length > 0).slice(0, 2).map((w: string) => w[0].toUpperCase()).join(""),
+          role: u.role,
+          status: u.status,
+          chats: 0
+        }));
+        dispatch({ type: "SET_AGENTS", agents: mappedAgents });
+      })
+      .catch(err => console.error("Error loading team members:", err));
 
     const reloadDevices = () => {
       fetch("http://localhost:3000/whatsapp/devices", {

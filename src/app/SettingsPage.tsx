@@ -297,19 +297,55 @@ function EquipoTab() {
     setFormError(""); setShowPw(false); setShowConfirm(false); setCreated(false);
   };
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!form.name.trim())            { setFormError("El nombre es obligatorio."); return; }
     if (!form.role.trim())            { setFormError("El rol es obligatorio."); return; }
     if (!form.email.includes("@"))    { setFormError("Ingresa un correo válido."); return; }
     if (form.password.length < 6)     { setFormError("La contraseña debe tener al menos 6 caracteres."); return; }
     if (form.password !== form.confirmPassword) { setFormError("Las contraseñas no coinciden."); return; }
     setFormError("");
-    dispatch({
-      type:  "ADD_AGENT",
-      agent: { id: Date.now(), name: form.name.trim(), initials: getInitials(form.name), role: form.role.trim(), status: form.status, chats: 0 },
-    });
-    setCreated(true);
-    setTimeout(() => { resetForm(); setShowForm(false); }, 1800);
+
+    const token = localStorage.getItem("crm_token");
+    if (!token) return;
+
+    try {
+      const res = await fetch("http://localhost:3000/auth/users", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          name: form.name.trim(),
+          email: form.email.trim(),
+          password: form.password,
+          role: form.role.trim(),
+          status: form.status
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error("Error al guardar el usuario en el servidor");
+      }
+
+      const data = await res.json();
+      
+      dispatch({
+        type:  "ADD_AGENT",
+        agent: {
+          id: data.id,
+          name: data.name,
+          initials: getInitials(data.name),
+          role: data.role,
+          status: data.status as Agent["status"],
+          chats: 0
+        },
+      });
+      setCreated(true);
+      setTimeout(() => { resetForm(); setShowForm(false); }, 1800);
+    } catch (err: any) {
+      setFormError(err.message || "Error al conectar con el servidor.");
+    }
   };
 
   return (

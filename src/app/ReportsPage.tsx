@@ -1,17 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { TrendingUp, MessageSquare, Clock, ShoppingBag } from "lucide-react";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
 } from "recharts";
 import { WEEKLY_DATA, INTEREST_DATA } from "./state";
-
-const KPI_CARDS = [
-  { label: "Mensajes esta semana", value: "328",  delta: "+12%", icon: MessageSquare, color: "text-primary"      },
-  { label: "Tasa de respuesta",    value: "94%",  delta: "+3%",  icon: TrendingUp,    color: "text-emerald-600" },
-  { label: "Tiempo prom. respuesta",value: "4.2m",delta: "-18%", icon: Clock,         color: "text-blue-600"    },
-  { label: "Ventas cerradas",      value: "78",   delta: "+21%", icon: ShoppingBag,   color: "text-amber-600"   },
-] as const;
 
 const TOOLTIP_STYLE = {
   contentStyle: {
@@ -30,6 +23,42 @@ const PERIODS = ["7 días", "30 días", "90 días"] as const;
 
 export function ReportsPage() {
   const [period, setPeriod] = useState<typeof PERIODS[number]>("7 días");
+  const [metrics, setMetrics] = useState({
+    totalMessages: 0,
+    responseRate: "0%",
+    avgResponseTime: "0s",
+    closedSales: 0
+  });
+
+  useEffect(() => {
+    const token = localStorage.getItem("crm_token");
+    if (!token) return;
+
+    fetch("http://localhost:3000/chats/metrics", {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(res => res.json())
+      .then(data => {
+        setMetrics({
+          totalMessages: data.totalMessages || 0,
+          responseRate: data.responseRate || "0%",
+          avgResponseTime: data.avgResponseTime || "0s",
+          closedSales: data.closedSales || 0
+        });
+      })
+      .catch(err => console.error("Error fetching reports metrics:", err));
+  }, []);
+
+  const cards = [
+    { label: "Mensajes totales", value: metrics.totalMessages.toString(), delta: "+12%", icon: MessageSquare, color: "text-primary" },
+    { label: "Tasa de respuesta", value: metrics.responseRate, delta: "+3%", icon: TrendingUp, color: "text-emerald-600" },
+    { label: "Tiempo prom. respuesta", value: metrics.avgResponseTime, delta: "-18%", icon: Clock, color: "text-blue-600" },
+    { label: "Ventas cerradas", value: metrics.closedSales.toString(), delta: "+21%", icon: ShoppingBag, color: "text-amber-600" },
+  ];
+
+  const today = new Date();
+  const rawDateStr = today.toLocaleDateString("es-MX", { month: "long", year: "numeric" });
+  const dateStr = rawDateStr.charAt(0).toUpperCase() + rawDateStr.slice(1);
 
   return (
     <div className="flex-1 min-w-0 overflow-y-auto scrollbar-hide bg-background">
@@ -39,7 +68,7 @@ export function ReportsPage() {
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-xl font-semibold text-foreground">Reportes de Actividad</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Semana del 23 al 29 de junio, 2025</p>
+            <p className="text-sm text-muted-foreground mt-0.5">Reportes actualizados a {dateStr}</p>
           </div>
           <div className="flex gap-1 bg-muted rounded-xl p-1">
             {PERIODS.map(p => (
@@ -59,7 +88,7 @@ export function ReportsPage() {
 
         {/* KPI cards */}
         <div className="grid grid-cols-4 gap-4 mb-8">
-          {KPI_CARDS.map(({ label, value, delta, icon: Icon, color }) => (
+          {cards.map(({ label, value, delta, icon: Icon, color }) => (
             <div key={label} className="bg-card rounded-2xl p-5 border border-border">
               <div className="flex items-center justify-between mb-4">
                 <div className={`w-9 h-9 rounded-xl bg-muted flex items-center justify-center ${color}`}>
