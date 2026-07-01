@@ -16,6 +16,9 @@ export interface Msg {
 export interface Chat {
   id: string | number; name: string; phone: string; lastMessage: string;
   time: string; status: ChatStatus; unread: number; initials: string;
+  birthday?: string;
+  gender?: string;
+  favoriteProduct?: string;
 }
 export interface CRMEntry {
   phone: string; birthday: string; gender: string; interest: string;
@@ -93,7 +96,7 @@ export const rawChats: Chat[] = [];
 
 export const DEVICES = new Proxy(rawDevices, {
   get(target, prop, receiver) {
-    if (prop === "0" || prop === 0) {
+    if (prop === "0") {
       if (target.length > 0) return target[0];
       return { id: "", name: "Sin Dispositivo", number: "", online: false };
     }
@@ -240,7 +243,7 @@ function reducer(state: AppState, action: AppAction): AppState {
           [action.chatId]: [...(state.messages[action.chatId] ?? []), action.msg],
         },
         chatStatuses: reopen
-          ? { ...state.chatStatuses, [action.chatId]: "pendiente" }
+          ? { ...state.chatStatuses, [action.chatId]: "pendiente" as ChatStatus }
           : state.chatStatuses,
       };
     }

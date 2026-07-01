@@ -237,7 +237,7 @@ function DispositivosTab() {
             <input
               value={newDevice.number}
               onChange={e => setNewDevice(p => ({ ...p, number: e.target.value }))}
-              placeholder="+52 55 1234 5678"
+              placeholder="+591 7123 4567"
               className="px-3.5 py-2.5 text-sm bg-muted rounded-xl border border-transparent outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/45"
             />
           </div>

@@ -11,7 +11,7 @@ import { Avatar, StatusChip } from "./shared";
 
 // ── Assign Modal ───────────────────────────────────────────────────────────────
 
-function AssignModal({ chatId, onClose }: { chatId: number; onClose: () => void }) {
+function AssignModal({ chatId, onClose }: { chatId: string | number; onClose: () => void }) {
   const { state, dispatch } = useApp();
   const agents  = state.agents;
   const current = state.assignments[chatId];
@@ -85,7 +85,7 @@ const SALE_CATEGORIES = [
   "Accesorios",
 ];
 
-function SaleModal({ chatId, onClose }: { chatId: number; onClose: () => void }) {
+function SaleModal({ chatId, onClose }: { chatId: string | number; onClose: () => void }) {
   const { dispatch } = useApp();
   const [product, setProduct] = useState("");
   const [notes,   setNotes]   = useState("");
@@ -232,7 +232,7 @@ function ChatListPanel() {
   const { filter, searchQuery, activeChatId, sales, chatStatuses, contactNames } = state;
 
   // Effective status: mutable override ?? static default
-  const effectiveStatus = (id: number): ChatStatus =>
+  const effectiveStatus = (id: string | number): ChatStatus =>
     chatStatuses[id] ?? (CHATS.find(c => c.id === id)?.status ?? "pendiente");
 
   const filtered = CHATS.filter(c => {
@@ -683,7 +683,7 @@ function CRMContextPanel() {
             <input
               value={crm.phone}
               onChange={e => update({ phone: e.target.value })}
-              placeholder="+52 55 0000 0000"
+              placeholder="+591 7000 0000"
               className="w-full px-3 py-2.5 text-sm bg-muted rounded-xl border border-transparent outline-none focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground/50"
             />
           </div>
